@@ -7,6 +7,9 @@ import buffer_utils
 
 class Stream(object):
     def __init__(self, src):
+        self.stream_listeners = []
+        self.snapshot_listeners = []
+
         self.pipeline = Gst.Pipeline()
         self.pipeline.add(src)
         def make_element(*args):
@@ -46,13 +49,23 @@ class Stream(object):
         #snapshot_valve.link(snapshot_scale)
 
     def new_stream_sample(self, appsink):
-        print 'asdf'
         sample = appsink.pull_sample()
         buf = sample.get_buffer()
         b = buffer_utils.get_buffer_data(buf)
-        open('asdfd.jpeg', 'w').write(b)
-        self.stream_valve.props.drop = True
+
+        if len(self.stream_listeners) == 0:
+            self.stream_valve.props.drop = True
+        else:
+            for listener in self.stream_listeners:
+                ret = listener(b)
+                if not ret:
+                    self.stream_listeners.remove(listener)
+
         return Gst.FlowReturn.OK
+
+    def listen_stream(self, cb):
+        self.stream_listeners.append(cb)
+        self.stream_valve.props.drop = False
 
     def start(self):
         self.pipeline.set_state(Gst.State.PLAYING)
