@@ -7,65 +7,65 @@ import buffer_utils
 
 class Stream(object):
     def __init__(self, src):
-        self.stream_listeners = []
-        self.snapshot_listeners = []
+        self._stream_listeners = []
+        self._snapshot_listeners = []
 
-        self.pipeline = Gst.Pipeline()
-        self.pipeline.add(src)
+        self._pipeline = Gst.Pipeline()
+        self._pipeline.add(src)
         def make_element(*args):
             ret = Gst.ElementFactory.make(*args)
             if ret is None:
                 raise RuntimeError("Couldn't find element %s" % (args[0]))
             else:
-                self.pipeline.add(ret)
+                self._pipeline.add(ret)
                 return ret
 
-        self.tee = make_element('tee', 'tee')
+        self._tee = make_element('tee', 'tee')
 
-        self.stream_valve = make_element('valve', 'stream-valve')
-        self.stream_rate = make_element('videorate', 'stream-rate')
-        self.stream_scale = make_element('videoscale', 'stream-scale')
-        self.stream_enc = make_element('jpegenc', 'stream-enc')
-        self.stream_sink = make_element('appsink', 'stream-sink')
+        self._stream_valve = make_element('valve', 'stream-valve')
+        self._stream_rate = make_element('videorate', 'stream-rate')
+        self._stream_scale = make_element('videoscale', 'stream-scale')
+        self._stream_enc = make_element('jpegenc', 'stream-enc')
+        self._stream_sink = make_element('appsink', 'stream-sink')
 
         #snapshot_valve = make_element('valve', 'snapshot-valve')
         #snapshot_enc = make_element('jpegenc', 'snapshot-enc')
         #snapshot_sink = make_element('appsink', 'snapshot-sink')
 
-        self.stream_valve.props.drop = False
+        self._stream_valve.props.drop = False
 
-        self.stream_sink.props.emit_signals = True
-        self.stream_sink.connect('new-sample', self.new_stream_sample)
+        self._stream_sink.props.emit_signals = True
+        self._stream_sink.connect('new-sample', self._new_stream_sample)
 
-        src.link(self.tee)
+        src.link(self._tee)
 
-        self.tee.link(self.stream_valve)
-        self.stream_valve.link(self.stream_rate)
-        self.stream_rate.link(self.stream_scale)
-        self.stream_scale.link(self.stream_enc)
-        self.stream_enc.link(self.stream_sink)
+        self._tee.link(self._stream_valve)
+        self._stream_valve.link(self._stream_rate)
+        self._stream_rate.link(self._stream_scale)
+        self._stream_scale.link(self._stream_enc)
+        self._stream_enc.link(self._stream_sink)
 
         #tee.link(snapshot_valve)
         #snapshot_valve.link(snapshot_scale)
 
-    def new_stream_sample(self, appsink):
+    def _new_stream_sample(self, appsink):
         sample = appsink.pull_sample()
         buf = sample.get_buffer()
         b = buffer_utils.get_buffer_data(buf)
 
-        if len(self.stream_listeners) == 0:
-            self.stream_valve.props.drop = True
+        if len(self._stream_listeners) == 0:
+            self._stream_valve.props.drop = True
         else:
-            for listener in self.stream_listeners:
+            for listener in self._stream_listeners:
                 ret = listener(b)
                 if not ret:
-                    self.stream_listeners.remove(listener)
+                    self._stream_listeners.remove(listener)
 
         return Gst.FlowReturn.OK
 
     def listen_stream(self, cb):
-        self.stream_listeners.append(cb)
-        self.stream_valve.props.drop = False
+        self._stream_listeners.append(cb)
+        self._stream_valve.props.drop = False
 
     def start(self):
-        self.pipeline.set_state(Gst.State.PLAYING)
+        self._pipeline.set_state(Gst.State.PLAYING)
