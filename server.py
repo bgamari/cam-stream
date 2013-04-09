@@ -1,14 +1,15 @@
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst, GstApp
-from stream import Stream
+from stream import StreamSink
 from Queue import Queue
 import threading
 from wsgiref.simple_server import WSGIServer, make_server, WSGIRequestHandler
 from SocketServer import ThreadingMixIn
+import sys
 
 GObject.threads_init()
-Gst.init(None)
+Gst.init(sys.argv)
 
 class MyWSGIServer(ThreadingMixIn, WSGIServer):
      pass
@@ -64,7 +65,8 @@ class StreamerApp(object):
             return iter([ERROR_404])
 
     def _start_reading(self):
-        self._stream.listen_stream(self._read_stream)
+        print 'go'
+        self._stream.listen(self._read_stream)
 
     def _read_stream(self, b):
         for q in self.queues:
@@ -88,17 +90,26 @@ class StreamerApp(object):
 
 #src = Gst.ElementFactory.make('v4l2src', 'video-source')
 src = Gst.ElementFactory.make('videotestsrc', 'video-source')
+tee = Gst.ElementFactory.make('tee', 'tee')
 
-stream = Stream(src)
-stream.start()
+pipeline = Gst.Pipeline()
+pipeline.add(src)
+pipeline.add(tee)
+src.link(tee)
+print src
 
-app = StreamerApp(stream)
+stream_sink = StreamSink()
+pipeline.add(stream_sink._bin)
+tee.link(stream_sink._bin)
+Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL, "hi")
+
+app = StreamerApp(stream_sink)
 port = 5005
 httpd = create_server('', port, app)
-
 thrd = threading.Thread(target=httpd.serve_forever)
 thrd.daemon = True
 thrd.start()
 
+pipeline.set_state(Gst.State.PLAYING)
 loop = GObject.MainLoop()
 loop.run()

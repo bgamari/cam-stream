@@ -5,73 +5,58 @@ gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst, GstApp
 import buffer_utils
 
-class Stream(object):
-    def __init__(self, src):
-        self._stream_listeners = []
-        self._snapshot_listeners = []
-
-        self._pipeline = Gst.Pipeline()
-        self._pipeline.add(src)
+class StreamSink(object):
+    def __init__(self, name='stream-sink'):
+        self._listeners = []
+        self._bin = Gst.Bin.new(name)
         def make_element(*args):
             ret = Gst.ElementFactory.make(*args)
             if ret is None:
                 raise RuntimeError("Couldn't find element %s" % (args[0]))
             else:
-                self._pipeline.add(ret)
+                self._bin.add(ret)
                 return ret
 
-        self._tee = make_element('tee', 'tee')
+        self._valve = make_element('valve', 'valve')
+        self._rate = make_element('videorate', 'rate')
+        self._scale = make_element('videoscale', 'scale')
+        self._enc = make_element('jpegenc', 'enc')
+        self._mux = make_element('multipartmux', 'mux')
+        self._sink = make_element('appsink', 'sink')
 
-        self._stream_valve = make_element('valve', 'stream-valve')
-        self._stream_rate = make_element('videorate', 'stream-rate')
-        self._stream_scale = make_element('videoscale', 'stream-scale')
-        self._stream_enc = make_element('jpegenc', 'stream-enc')
-        self._stream_mux = make_element('multipartmux', 'stream-mux')
-        self._stream_sink = make_element('appsink', 'stream-sink')
+        self._mux.props.boundary = 'break'
+        self._valve.props.drop = False
 
-        #snapshot_valve = make_element('valve', 'snapshot-valve')
-        #snapshot_enc = make_element('jpegenc', 'snapshot-enc')
-        #snapshot_sink = make_element('appsink', 'snapshot-sink')
+        self._sink.props.emit_signals = True
+        self._sink.connect('new-sample', self._new_sample)
 
-        self._stream_mux.props.boundary = 'break'
-        self._stream_valve.props.drop = False
+        caps = Gst.Caps.new_empty_simple('video/x-raw')
+        caps.set_value('framerate', '10/1')
 
-        self._stream_sink.props.emit_signals = True
-        self._stream_sink.connect('new-sample', self._new_stream_sample)
+        self._bin.add_pad(Gst.GhostPad.new('src', self._valve.get_static_pad('sink')))
+        #self._valve.link_filtered(self._rate, caps)
+        self._valve.link(self._rate)
+        self._rate.link(self._scale)
+        self._scale.link(self._enc)
+        self._enc.link(self._mux)
+        self._mux.link(self._sink)
 
-        src.link(self._tee)
-
-        caps = Gst.Caps.new_empty_simple('video/x-rgb')
-        caps.set_value('framerate', 10)
-
-        self._tee.link(self._stream_valve)
-        self._stream_valve.link(self._stream_rate)
-        self._stream_rate.link(self._stream_scale)
-        self._stream_scale.link(self._stream_enc)
-        self._stream_enc.link(self._stream_mux)
-        self._stream_mux.link(self._stream_sink)
-
-        #tee.link(snapshot_valve)
-        #snapshot_valve.link(snapshot_scale)
-
-    def _new_stream_sample(self, appsink):
+    def _new_sample(self, appsink):
         sample = appsink.pull_sample()
         buf = sample.get_buffer()
         b = buffer_utils.get_buffer_data(buf)
 
-        for listener in self._stream_listeners:
+        for listener in self._listeners:
             ret = listener(b)
             if not ret:
-                self._stream_listeners.remove(listener)
+                self._listeners.remove(listener)
 
-        if len(self._stream_listeners) == 0:
-            self._stream_valve.props.drop = True
+        if len(self._listeners) == 0:
+            self._valve.props.drop = True
 
         return Gst.FlowReturn.OK
 
-    def listen_stream(self, cb):
-        self._stream_listeners.append(cb)
-        self._stream_valve.props.drop = False
-
-    def start(self):
-        self._pipeline.set_state(Gst.State.PLAYING)
+    def listen(self, cb):
+        print 'asdf'
+        self._listeners.append(cb)
+        self._valve.props.drop = False
