@@ -30,13 +30,12 @@ class StreamSink(object):
         self._sink.props.emit_signals = True
         self._sink.connect('new-sample', self._new_sample)
 
-        caps = Gst.Caps.new_empty_simple('video/x-raw')
-        caps.set_value('framerate', '10/1')
-
         self._bin.add_pad(Gst.GhostPad.new('src', self._valve.get_static_pad('sink')))
-        #self._valve.link_filtered(self._rate, caps)
         self._valve.link(self._rate)
-        self._rate.link(self._scale)
+        #self._rate.link(self._scale)
+        self._rate.link_filtered(self._scale,
+                                 Gst.caps_from_string('video/x-raw, framerate=8/1')
+                                 )
         self._scale.link(self._enc)
         self._enc.link(self._mux)
         self._mux.link(self._sink)

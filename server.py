@@ -14,30 +14,16 @@ Gst.init(sys.argv)
 class MyWSGIServer(ThreadingMixIn, WSGIServer):
      pass
 
-def create_server(host, port, app, server_class=MyWSGIServer,
-          handler_class=WSGIRequestHandler):
-     return make_server(host, port, app, server_class, handler_class)
-
 INDEX_PAGE = """
 <html>
-<head>
-    <title>Gstreamer testing</title>
-</head>
-<body>
-<h1>Testing a dummy camera with GStreamer</h1>
-<img src="/mjpeg_stream"/>
-<hr />
-</body>
+<head><title>Gstreamer testing</title></head>
+<body><img src="/mjpeg_stream"/></body>
 </html>
 """
 ERROR_404 = """
 <html>
-  <head>
-    <title>404 - Not Found</title>
-  </head>
-  <body>
-    <h1>404 - Not Found</h1>
-  </body>
+  <head><title>404 - Not Found</title></head>
+  <body><h1>404 - Not Found</h1></body>
 </html>
 """
 
@@ -101,11 +87,16 @@ print src
 stream_sink = StreamSink()
 pipeline.add(stream_sink._bin)
 tee.link(stream_sink._bin)
+
+snap_sink = StreamSink()
+pipeline.add(snap_sink._bin)
+tee.link(snap_sink._bin)
+
 Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL, "hi")
 
 app = StreamerApp(stream_sink)
 port = 5005
-httpd = create_server('', port, app)
+httpd = make_server('', port, app, MyWSGIServer, WSGIRequestHandler)
 thrd = threading.Thread(target=httpd.serve_forever)
 thrd.daemon = True
 thrd.start()
