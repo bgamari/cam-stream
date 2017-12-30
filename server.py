@@ -1,7 +1,7 @@
 import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst, GstApp
-from stream import StreamSink
+from stream import MJPEGSink, SnapshotSink, WebMSink
 from Queue import Queue
 import threading
 from wsgiref.simple_server import WSGIServer, make_server, WSGIRequestHandler
@@ -17,7 +17,7 @@ class MyWSGIServer(ThreadingMixIn, WSGIServer):
 INDEX_PAGE = """
 <html>
 <head><title>Gstreamer testing</title></head>
-<body><img src="/mjpeg_stream"/></body>
+<body><video src="/mjpeg_stream"/></body>
 </html>
 """
 ERROR_404 = """
@@ -51,7 +51,6 @@ class StreamerApp(object):
             return iter([ERROR_404])
 
     def _start_reading(self):
-        print 'go'
         self._stream.listen(self._read_stream)
 
     def _read_stream(self, b):
@@ -60,7 +59,8 @@ class StreamerApp(object):
         return len(self.queues) > 0
 
     def _start_streaming(self, start_response):
-        start_response('200 OK', [('Content-type', 'multipart/x-mixed-replace; boundary=--break')])
+        #start_response('200 OK', [('Content-type', 'multipart/x-mixed-replace; boundary=--break')])
+        start_response('200 OK', [('Content-type', 'video/webm')])
 
         self._start_reading()
         q = Queue()
@@ -69,32 +69,38 @@ class StreamerApp(object):
             try:
                 yield q.get()
             except:
-                print 'done'
                 if q in self.queues:
                     self.queues.remove(q)
                 return
 
 #src = Gst.ElementFactory.make('v4l2src', 'video-source')
 src = Gst.ElementFactory.make('videotestsrc', 'video-source')
+#src.props.num_buffers = 250
+queue = Gst.ElementFactory.make('queue', 'queue')
 tee = Gst.ElementFactory.make('tee', 'tee')
 
 pipeline = Gst.Pipeline()
 pipeline.add(src)
+pipeline.add(queue)
 pipeline.add(tee)
-src.link(tee)
-print src
+src.link(queue)
+queue.link(tee)
 
-stream_sink = StreamSink()
-pipeline.add(stream_sink._bin)
-tee.link(stream_sink._bin)
+#mjpeg_sink = MJPEGSink('stream')
+#pipeline.add(mjpeg_sink._bin)
+#tee.link(mjpeg_sink._bin)
 
-snap_sink = StreamSink()
-pipeline.add(snap_sink._bin)
-tee.link(snap_sink._bin)
+#snap_sink = SnapshotSink('snap')
+#pipeline.add(snap_sink._bin)
+#tee.link(snap_sink._bin)
+
+webm_sink = WebMSink('snap')
+pipeline.add(webm_sink._bin)
+tee.link(webm_sink._bin)
 
 Gst.debug_bin_to_dot_file(pipeline, Gst.DebugGraphDetails.ALL, "hi")
 
-app = StreamerApp(stream_sink)
+app = StreamerApp(webm_sink)
 port = 5005
 httpd = make_server('', port, app, MyWSGIServer, WSGIRequestHandler)
 thrd = threading.Thread(target=httpd.serve_forever)
