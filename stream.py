@@ -1,101 +1,119 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 
+import os
+import sys
 import gi
-gi.require_version('Gst', '1.0')
-from gi.repository import GObject, Gst, GstApp
-import buffer_utils
+gi.require_version("Gst", "1.0")
+gi.require_version("GstApp", "1.0")
+from gi.repository import Gst
+from gi.repository import GLib
+from gi.repository import GstApp
 
-class ValvedSink(object):
-    def _make_element(self, *args):
-        ret = Gst.ElementFactory.make(*args)
-        if ret is None:
-            raise RuntimeError("Couldn't find element %s" % (args[0]))
-        else:
-            self._bin.add(ret)
-            return ret
+import aiohttp
+from aiohttp import web
+import asyncio
 
-    def __init__(self, name='stream-sink', *args, **kwargs):
-        self._listeners = []
-        self._bin = Gst.Bin.new(name)
 
-        self._valve = self._make_element('valve', 'valve')
-        self._queue = self._make_element('queue', 'queue')
-        self._sink = self._make_element('appsink', 'sink')
-        self._create_filter(self._valve, self._queue, *args, **kwargs)
+class Source(object):
+    def __init__(self, pipeline_desc):
+        self.sinks = []
+        desc = pipeline_desc.format(fd=1)
+        print('pipeline: %s' % desc)
+        pipeline = Gst.Pipeline()
+        self.bin = Gst.parse_bin_from_description(desc, True)
+        pipeline.add(self.bin)
+        self.sink = GstApp.AppSink()
+        pipeline.add(self.sink)
+        self.bin.link(self.sink)
+        Gst.debug_bin_to_dot_file(self.bin, Gst.DebugGraphDetails.ALL, "graph.dot")
+        self.sink.connect('new-sample', self.have_buffer)
+        #self.sink.connect('new-preroll', self.have_buffer)
+        self.bin = pipeline
 
-        self._sink.props.emit_signals = True
-        self._sink.connect('new-sample', self._new_sample)
-
-        self._queue.link(self._sink)
-
-        self._bin.add_pad(Gst.GhostPad.new('src', self._valve.get_static_pad('sink')))
-
-    def _new_sample(self, appsink):
-        sample = appsink.pull_sample()
+    def have_buffer(self, appsink):
+        sample = appsink.try_pull_sample(0)
         buf = sample.get_buffer()
-        b = buffer_utils.get_buffer_data(buf)
+        (result, map_info) = buf.map(Gst.MapFlags.READ)
+        assert result
+        try:
+            for q in self.sinks:
+                try:
+                    print('@')
+                    q.put_nowait(map_info.data)
+                except asyncio.queues.QueueFull as e:
+                    print("Queue filled, removing")
+                    del self.sinks[q]
 
-        for listener in self._listeners:
-            ret = listener(b)
-            if not ret:
-                self._listeners.remove(listener)
-
-        if len(self._listeners) == 0:
-            self._valve.props.drop = True
+        finally:
+            buf.unmap(map_info)
 
         return Gst.FlowReturn.OK
 
-    def listen(self, cb):
-        self._listeners.append(cb)
-        self._valve.props.drop = False
+    async def start(self):
+        class QueueProtocol(asyncio.Protocol):
+            def data_received(proto, d):
+                print('^')
+                for q in self.sinks:
+                    try:
+                        print('@')
+                        q.put_nowait(d)
+                    except asyncio.queues.QueueFull as e:
+                        print("Queue filled, removing")
+                        del self.sinks[d]
 
-class MJPEGSink(ValvedSink):
-    def _create_filter(self, src, sink):
-        self._rate = self._make_element('videorate', 'rate')
-        self._scale = self._make_element('videoscale', 'scale')
-        self._enc = self._make_element('jpegenc', 'enc')
-        self._mux = self._make_element('multipartmux', 'mux')
+            def eof_received(proto):
+                print("done")
 
-        self._mux.props.boundary = 'break'
-        self._valve.props.drop = True
+        self.sink.set_emit_signals(True)
+        s = self.bin.set_state(Gst.State.PLAYING)
+        print(s)
+        #self.transport, _ = await loop.connect_read_pipe(QueueProtocol, self.f)
 
-        src.link(self._rate)
-        self._rate.link_filtered(self._scale,
-                                 Gst.caps_from_string('video/x-raw, framerate=8/1')
-                                 )
-        self._scale.link(self._enc)
-        self._enc.link(self._mux)
-        self._mux.link(sink)
+    def add_sink(self, queue):
+        self.sinks.append(queue)
 
-class SnapshotSink(ValvedSink):
-    def _create_filter(self, src, sink):
-        self._rate = self._make_element('videorate', 'rate')
-        self._scale = self._make_element('videoscale', 'scale')
-        self._enc = self._make_element('jpegenc', 'enc')
+    def stop(self):
+        self.bin.set_state(Gst.State.NULL)
 
-        self._valve.props.drop = True
+Gst.init(sys.argv)
+#pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! vp8enc ! matroskamux streamable=true ! fdsink fd={fd}"
+pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! vp8enc ! webmmux streamable=true"
+#pipeline_desc = "v4l2src do-timestamp=true device=/dev/video1 ! video/x-raw,format=YUY2,framerate=15/1 ! videoconvert ! queue ! matroskamux streamable=true"
+#pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! xvimagesink"
+src = Source(pipeline_desc)
 
-        src.link(self._rate)
-        self._rate.link_filtered(self._scale,
-                                 Gst.caps_from_string('video/x-raw, framerate=8/1')
-                                 )
-        self._scale.link(self._enc)
-        self._enc.link(sink)
+async def handle(request):
+    print(request)
+    resp = web.StreamResponse()
+    #resp.content_type = 'multipart/x-mixed-replace: dou'
+    resp.content_type = 'video/webm'
+    await resp.prepare(request)
 
-class WebMSink(ValvedSink):
-    def _create_filter(self, src, sink):
-        self._rate = self._make_element('videorate', 'rate')
-        self._scale = self._make_element('videoscale', 'scale')
-        self._enc = self._make_element('vp8enc', 'enc')
-        self._mux = self._make_element('webmmux', 'mux')
+    q = asyncio.queues.Queue()
+    src.add_sink(q)
+    while True:
+        d = await q.get()
+        resp.write(d)
+        await resp.drain()
+        print('.',)
 
-        self._valve.props.drop = True
-        self._mux.props.streamable = True
+app = web.Application()
+app.router.add_get('/', handle)
+loop = app.loop
+app.loop.create_task(src.start())
 
-        src.link(self._rate)
-        self._rate.link_filtered(self._scale,
-                                 Gst.caps_from_string('video/x-raw, framerate=30/1')
-                                 )
-        self._scale.link(self._enc)
-        self._enc.link(self._mux)
-        self._mux.link(sink)
+async def glib_loop():
+    ctx = GLib.MainContext.default()
+    while True:
+        while ctx.pending():
+            ctx.iteration(False)
+        await asyncio.sleep(0.01)
+
+app.loop.create_task(glib_loop())
+
+try:
+    print("serving...")
+    web.run_app(app)
+finally:
+    print('done')
+    src.stop()
