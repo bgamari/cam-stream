@@ -53,7 +53,8 @@ class Source(object):
 
 Gst.init(sys.argv)
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! vp8enc ! webmmux streamable=true ! multifdsink name=sink"
-pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
+pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! tee name=t ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink t. ! queue2 ! autovideosink "
+#pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
 src = Source(pipeline_desc)
 
