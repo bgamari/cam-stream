@@ -53,7 +53,7 @@ class Source(object):
 
 Gst.init(sys.argv)
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! vp8enc ! webmmux streamable=true ! multifdsink name=sink"
-pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=10/1 ! videoconvert ! vp8enc ! webmmux streamable=true ! multifdsink name=sink"
+pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
 src = Source(pipeline_desc)
 
@@ -84,7 +84,7 @@ async def glib_loop():
             ctx.iteration(False)
         await asyncio.sleep(0.001)
 
-app.loop.create_task(glib_loop())
+#app.loop.create_task(glib_loop())
 
 try:
     print("serving...")
