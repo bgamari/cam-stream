@@ -183,8 +183,8 @@ else:
 
 display_desc = "t. ! q.sink_2 q.src_2 ! queue2 ! autovideosink" if args.local else ""
 pipeline_desc = ' '.join([input_desc, preprocess_desc, stream_desc, encode_desc, display_desc, "multiqueue name=q"])
-#pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
+# Web interface
 Gst.init(sys.argv)
 loop = asyncio.get_event_loop()
 src = Source(loop, pipeline_desc)
