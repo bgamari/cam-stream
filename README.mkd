@@ -1,0 +1,6 @@
+## Debugging
+
+vaapi is essentially mandatory
+```
+GST_DEBUG_DUMP_DOT_DIR=. GST_DEBUG=4 python3 stream.py
+```

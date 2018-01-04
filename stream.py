@@ -15,34 +15,25 @@ import aiohttp
 from aiohttp import web
 import asyncio
 
+have_vp8 = True
+enable_display = True
 
 class Source(object):
     def __init__(self, pipeline_desc):
         desc = pipeline_desc.format(fd=1)
-        self.fds = {}
         print('pipeline: %s' % desc)
         self.pipeline = Gst.Pipeline()
         self.bin = Gst.parse_bin_from_description(desc, False)
         self.pipeline.add(self.bin)
-        self.sink = self.pipeline.get_by_name('sink')
-        self.sink.connect('client-removed', self.on_client_removed)
-        self.add_signal = GObject.signal_lookup('add', self.sink.g_type_instance.g_class.g_type)
-        Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL, "graph.dot")
-
+        self.stream_sink = MultiFdSink(self.pipeline.get_by_name('stream_sink'), name='stream')
+        self.tee = self.pipeline.get_by_name('t1')
+        self.mjpeg_bin = None
         bus = self.pipeline.get_bus()
 
-        self.tee = self.pipeline.get_by_name('t1')
+        Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL, "graph.dot")
 
     async def start(self):
         s = self.pipeline.set_state(Gst.State.PLAYING)
-
-    def on_client_removed(self, sink, fd, status):
-        event = self.fds.get(fd)
-        if event is None:
-            print("unknown socket %d" % fd)
-        else:
-            print("removed %d" % fd)
-            event.set()
 
     async def grab_frame(self):
         print('Grabbing frame')
@@ -79,22 +70,59 @@ class Source(object):
         del bin
         return frame
 
-    async def add_sink(self, fd):
+    async def add_mjpeg_sink(self, fd):
+        if self.mjpeg_bin is None:
+            desc = 'videorate name=in ! video/x-raw,framerate=5/1 ! jpegenc ! avimux ! tee name=a a. ! multifdsink name=sink a. ! filesink location=hi.jpeg'
+            self.mjpeg_bin = Gst.parse_bin_from_description(desc, False)
+            self.mjpeg_sink = MultiFdSink(self.mjpeg_bin.get_by_name('sink'), name='mjpeg')
+            self.pipeline.add(self.mjpeg_bin)
+            self.tee.link(self.mjpeg_bin.get_by_name('in'))
+            self.mjpeg_bin.set_state(Gst.State.PLAYING)
+            Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL, "graph.dot")
+
+        await self.mjpeg_sink.add_fd(fd)
+
+    async def add_stream_sink(self, fd):
+        await self.stream_sink.add_fd(fd)
+
+    def stop(self):
+        self.bin.set_state(Gst.State.NULL)
+
+class MultiFdSink(object):
+    def __init__(self, sink, name="unknown"):
+        self.sink = sink
+        self.name = name
+        self.sink.connect('client-removed', self.on_client_removed)
+        self.fds = {}
+
+    def active_clients(self):
+        return len(self.fds)
+
+    def on_client_removed(self, sink, fd, status):
+        event = self.fds.get(fd)
+        if event is None:
+            print("unknown socket %d" % fd)
+        else:
+            print("removed %d" % fd)
+            event.set()
+
+    async def add_fd(self, fd):
+        print("%s: adding fd %d" % (self.name, fd))
         self.sink.emit('add', fd)
         event = asyncio.Event()
         self.fds[fd] = event
         await event.wait()
 
-    def stop(self):
-        self.bin.set_state(Gst.State.NULL)
-
 Gst.init(sys.argv)
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! vp8enc ! webmmux streamable=true ! multifdsink name=sink"
 input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! tee name=t1 ! videoconvert ! vaapipostproc ! tee name=t multiqueue name=q"
-tee_desc = " "
-stream_desc = "t. ! q.sink_0 q.src_0 ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
-display_desc = "t. ! q.sink_1 q.src_1 ! queue2 ! autovideosink "
-pipeline_desc = ' '.join([input_desc, tee_desc, stream_desc, display_desc])
+if have_vp8:
+    stream_desc = "t. ! q.sink_0 q.src_0 ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
+else:
+    stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! matroskamux ! multifdsink name=stream_sink"
+
+display_desc = "t. ! q.sink_2 q.src_2 ! queue2 ! autovideosink" if enable_display else ""
+pipeline_desc = ' '.join([input_desc, stream_desc, display_desc])
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
 src = Source(pipeline_desc)
@@ -103,13 +131,25 @@ async def handle_webm(request):
     print(request)
     resp = web.StreamResponse()
     resp.content_length = -1
-    #resp.content_type = 'multipart/x-mixed-replace: dou'
-    resp.content_type = 'video/webm'
+    if have_vp8:
+        resp.content_type = 'video/webm'
+    else:
+        #resp.content_type = 'video/webm'
+        pass
     await resp.prepare(request)
     await resp.drain()
-
     fd = request.transport._sock_fd
-    await src.add_sink(fd)
+    await src.add_stream_sink(fd)
+    return resp
+
+async def handle_mjpeg(request):
+    print(request)
+    resp = web.StreamResponse()
+    resp.content_type = 'image/jpeg'
+    await resp.prepare(request)
+    await resp.drain()
+    fd = request.transport._sock_fd
+    await src.add_mjpeg_sink(fd)
     return resp
 
 async def handle_jpeg(request):
@@ -123,6 +163,7 @@ async def handle_jpeg(request):
 app = web.Application()
 app.router.add_get('/webm', handle_webm)
 app.router.add_get('/jpeg', handle_jpeg)
+app.router.add_get('/mjpeg', handle_mjpeg)
 loop = app.loop
 app.loop.create_task(src.start())
 
