@@ -21,6 +21,7 @@ for diagnosing va-api issues.
 This is a handy command-line for debugging GStreamer problems:
 ```
 GST_DEBUG_DUMP_DOT_DIR=. GST_DEBUG=4 python3 stream.py
+dot -T svg graph.dot.dot -o graph.svg && eog graph.svg
 ```
 
 `mediainfo` is helpful for diagnosing format issues.
