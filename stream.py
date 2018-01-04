@@ -21,6 +21,9 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--no-vp8', help="Use x285 instead of WebM (currently broken)")
 parser.add_argument('--local', help="Show the stream locally")
 parser.add_argument('--port', '-p', type=int, default=8080, help="Port number to serve on")
+parser.add_argument('--mjpeg-framerate', type=int, default=5, help="Framerate of the MJPEG stream")
+parser.add_argument('--mjpeg-width', type=int, default=640, help="Width of the MJPEG stream")
+parser.add_argument('--mjpeg-height', type=int, default=480, help="Height of the MJPEG stream")
 args = parser.parse_args()
 have_vp8 = not args.no_vp8
 enable_display = args.local
@@ -79,7 +82,7 @@ class Source(object):
 
     async def add_mjpeg_sink(self, fd):
         if self.mjpeg_bin is None:
-            desc = 'videorate name=in ! video/x-raw,framerate=5/1 ! videoscale ! video/x-raw,width=640,height=480 ! queue ! jpegenc ! multifdsink name=sink'
+            desc = 'videorate name=in ! video/x-raw,framerate={rate}/1 ! videoscale ! video/x-raw,width={width},height={height} ! queue ! jpegenc ! multifdsink name=sink'.format(rate=args.mjpeg_framerate, width=args.mjpeg_width, height=args.mjpeg_height)
             self.mjpeg_bin = Gst.parse_bin_from_description(desc, False)
             self.mjpeg_sink = MultiFdSink(self.mjpeg_bin.get_by_name('sink'), name='mjpeg')
             self.pipeline.add(self.mjpeg_bin)
