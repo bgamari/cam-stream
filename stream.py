@@ -3,6 +3,7 @@
 import os
 import sys
 import argparse
+import logging
 
 import gi
 gi.require_version("Gst", "1.0")
@@ -33,27 +34,33 @@ parser.add_argument('--input-format', type=str,
 parser.add_argument('--mjpeg-framerate', type=int, default=5, help="Framerate of the MJPEG stream")
 parser.add_argument('--mjpeg-width', type=int, default=640, help="Width of the MJPEG stream")
 parser.add_argument('--mjpeg-height', type=int, default=480, help="Height of the MJPEG stream")
+parser.add_argument('--verbose', '-v', type=int, default=1, help="Verbosity level")
 args = parser.parse_args()
+
+logging.basicConfig(level=args.verbose)
 
 async def watch_bus(bus):
     while True:
         while True:
             msg = bus.pop()
             if msg is None: break
-            print('Bus message: %s: %s' % (msg.timestamp, msg.type))
             if msg.type == Gst.MessageType.ERROR:
-                print(msg.parse_error())
+                logging.error(msg.parse_error())
             elif msg.type == Gst.MessageType.WARNING:
-                print(msg.parse_warning())
+                logging.warn(msg.parse_warning())
             elif msg.type == Gst.MessageType.STATE_CHANGED:
-                print(msg.parse_state_changed())
+                logging.info('state changed: %s' % (msg.parse_state_changed(),))
+            elif msg.type == Gst.MessageType.QOS:
+                logging.info('qos: %s' % (msg.parse_qos(),))
+            else:
+                logging.debug('Bus message: %s: %s' % (msg.timestamp, msg.type))
 
         await asyncio.sleep(0.1)
 
 class Source(object):
     def __init__(self, loop, pipeline_desc):
         desc = pipeline_desc.format(fd=1)
-        print('pipeline: %s' % desc)
+        logging.info('pipeline description: %s' % desc)
         self.pipeline = Gst.Pipeline()
         self.bin = Gst.parse_bin_from_description(desc, False)
         self.pipeline.add(self.bin)
@@ -68,11 +75,11 @@ class Source(object):
         s = self.pipeline.set_state(Gst.State.PLAYING)
 
     async def grab_frame(self):
-        print('Grabbing frame')
+        logging.debug('Grabbing frame')
         bin = Gst.parse_bin_from_description('jpegenc ! appsink name=sink', True)
         queue = asyncio.Queue()
         def on_frame(sink):
-            print('Have frame')
+            logging.debug('Have frame')
             sample = sink.emit("pull-sample")
             sink.set_emit_signals(False)
             buf = sample.get_buffer()
@@ -139,13 +146,13 @@ class MultiFdSink(object):
     def _on_client_removed(self, sink, fd, status):
         event = self.fds.get(fd)
         if event is None:
-            print("unknown socket %d" % fd)
+            logging.info("%s: unknown socket %d" % (self.name, fd))
         else:
-            print("removed %d" % fd)
+            logging.debug("%s: removed %d" % (self.name, fd))
             event.set()
 
     async def add_fd(self, fd):
-        print("%s: adding fd %d" % (self.name, fd))
+        logging.debug("%s: adding fd %d" % (self.name, fd))
         self.sink.emit('add', fd)
         event = asyncio.Event()
         self.fds[fd] = event
@@ -184,7 +191,7 @@ src = Source(loop, pipeline_desc)
 loop.create_task(src.start())
 
 async def handle_stream(request):
-    print(request)
+    logging.debug('request: %s' % request)
     resp = web.StreamResponse()
     resp.content_length = -1
     if args.profile != 'h264':
@@ -200,7 +207,7 @@ async def handle_stream(request):
     return resp
 
 async def handle_mjpeg(request):
-    print(request)
+    logging.debug('request: %s' % request)
     resp = web.StreamResponse()
     resp.content_type = 'video/mjpeg'
     resp.content_length = -1
@@ -237,8 +244,8 @@ app.router.add_get('/webm.html', serve_static('webm.html'))
 app.router.add_get('/', serve_static('index.html'))
 
 try:
-    print("serving...")
+    logging.info("serving...")
     web.run_app(app, port=args.port, loop=loop)
 finally:
-    print('done')
+    logging.info('done')
     src.stop()
