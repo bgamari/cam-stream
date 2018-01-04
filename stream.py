@@ -145,7 +145,8 @@ async def handle_webm(request):
 async def handle_mjpeg(request):
     print(request)
     resp = web.StreamResponse()
-    resp.content_type = 'image/jpeg'
+    resp.content_type = 'video/mjpeg'
+    resp.content_length = -1
     await resp.prepare(request)
     await resp.drain()
     fd = request.transport._sock_fd
@@ -160,10 +161,23 @@ async def handle_jpeg(request):
     resp.write(frame)
     return resp
 
+def serve_static(path):
+    async def handle(request):
+        content = open(path, 'rb').read()
+        resp = web.Response(body=content)
+        resp.content_type = 'text/html'
+        await resp.prepare(request)
+        return resp
+
+    return handle
+
 app = web.Application()
-app.router.add_get('/webm', handle_webm)
-app.router.add_get('/jpeg', handle_jpeg)
-app.router.add_get('/mjpeg', handle_mjpeg)
+app.router.add_get('/stream.webm', handle_webm)
+app.router.add_get('/stream.jpeg', handle_jpeg)
+app.router.add_get('/stream.mjpeg', handle_mjpeg)
+app.router.add_get('/mjpeg.html', serve_static('mjpeg.html'))
+app.router.add_get('/', serve_static('index.html'))
+
 loop = app.loop
 app.loop.create_task(src.start())
 
