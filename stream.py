@@ -92,6 +92,12 @@ class Source(object):
 
         await self.mjpeg_sink.add_fd(fd)
 
+        if self.mjpeg_sink.active_clients() == 0:
+            self.tee.unlink(self.mjpeg_bin)
+            self.mjpeg_bin.set_state(Gst.State.NULL)
+            self.pipeline.remove(self.mjpeg_bin)
+            self.mjpeg_bin = None
+
     async def add_stream_sink(self, fd):
         await self.stream_sink.add_fd(fd)
 
@@ -102,13 +108,13 @@ class MultiFdSink(object):
     def __init__(self, sink, name="unknown"):
         self.sink = sink
         self.name = name
-        self.sink.connect('client-removed', self.on_client_removed)
+        self.sink.connect('client-removed', self._on_client_removed)
         self.fds = {}
 
     def active_clients(self):
         return len(self.fds)
 
-    def on_client_removed(self, sink, fd, status):
+    def _on_client_removed(self, sink, fd, status):
         event = self.fds.get(fd)
         if event is None:
             print("unknown socket %d" % fd)
