@@ -26,6 +26,7 @@ parser.add_argument('--mjpeg-width', type=int, default=640, help="Width of the M
 parser.add_argument('--mjpeg-height', type=int, default=480, help="Height of the MJPEG stream")
 args = parser.parse_args()
 have_vp8 = not args.no_vp8
+have_va_api = True
 enable_display = args.local
 
 class Source(object):
@@ -130,15 +131,20 @@ class MultiFdSink(object):
         await event.wait()
 
 Gst.init(sys.argv)
-#pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=YUY2,framerate=25/1 ! videoconvert ! vp8enc ! webmmux streamable=true ! multifdsink name=sink"
-input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! tee name=t1 ! videoconvert ! vaapipostproc ! tee name=t multiqueue name=q"
-if have_vp8:
-    stream_desc = "t. ! q.sink_0 q.src_0 ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
+input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! tee name=t1"
+if have_va_api:
+    encode_desc = "t1. ! videoconvert ! vaapipostproc ! tee name=t"
+    if have_vp8:
+        stream_desc = "t. ! q.sink_0 q.src_0 ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
+    else:
+        stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! matroskamux ! multifdsink name=stream_sink"
 else:
-    stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! matroskamux ! multifdsink name=stream_sink"
+    encode_desc = "t1. ! videoconvert ! tee name=t"
+    stream_desc = "t. ! q.sink_0 q.src_0 ! vp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
+    input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=25/1 ! videoconvert ! vp8enc ! tee name=t"
 
 display_desc = "t. ! q.sink_2 q.src_2 ! queue2 ! autovideosink" if enable_display else ""
-pipeline_desc = ' '.join([input_desc, stream_desc, display_desc])
+pipeline_desc = ' '.join([input_desc, stream_desc, encode_desc, display_desc, "multiqueue name=q"])
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
 src = Source(pipeline_desc)
