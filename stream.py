@@ -165,7 +165,7 @@ pipeline_desc = ' '.join([input_desc, preprocess_desc, stream_desc, encode_desc,
 
 src = Source(pipeline_desc)
 
-async def handle_webm(request):
+async def handle_stream(request):
     print(request)
     resp = web.StreamResponse()
     resp.content_length = -1
@@ -211,7 +211,7 @@ def serve_static(path):
     return handle
 
 app = web.Application()
-app.router.add_get('/stream.webm', handle_webm)
+app.router.add_get('/stream', handle_stream)
 app.router.add_get('/snapshot.jpeg', handle_jpeg)
 app.router.add_get('/stream.mjpeg', handle_mjpeg)
 app.router.add_get('/mjpeg.html', serve_static('mjpeg.html'))
