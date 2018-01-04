@@ -27,6 +27,8 @@ parser.add_argument('--local', action='store_true', help="Show the stream locall
 parser.add_argument('--device', '-d', type=str, default='/dev/video0',
                     help="V4L2 capture device to serve (or 'test' to use test source)")
 parser.add_argument('--port', '-p', type=int, default=8080, help="Port number to serve on")
+parser.add_argument('--input-format', type=str, default='video/x-raw,format=BGR,framerate=15/1',
+                    help='Input video format (GStreamer media type)')
 parser.add_argument('--mjpeg-framerate', type=int, default=5, help="Framerate of the MJPEG stream")
 parser.add_argument('--mjpeg-width', type=int, default=640, help="Width of the MJPEG stream")
 parser.add_argument('--mjpeg-height', type=int, default=480, help="Height of the MJPEG stream")
@@ -136,9 +138,11 @@ class MultiFdSink(object):
 
 Gst.init(sys.argv)
 if args.device != 'test':
-    input_desc = "v4l2src device=%s ! video/x-raw,format=BGR,framerate=15/1 ! tee name=t1" % args.device
+    input_desc = "v4l2src device=%s name=raw" % args.device
 else:
-    input_desc = "videotestsrc ! video/x-raw,format=BGR,framerate=15/1 ! tee name=t1"
+    input_desc = "videotestsrc name=raw"
+
+preprocess_desc = "raw. ! %s ! tee name=t1" % args.input_format
 
 if args.profile == 'vaapi-webm':
     encode_desc = "t1. ! videoconvert ! vaapipostproc ! tee name=t"
@@ -146,7 +150,6 @@ if args.profile == 'vaapi-webm':
 elif args.profile == 'webm':
     encode_desc = "t1. ! videoconvert ! tee name=t"
     stream_desc = "t. ! q.sink_0 q.src_0 ! vp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
-    input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=25/1 ! videoconvert ! vp8enc ! tee name=t"
 elif args.profile == 'h264':
     encode_desc = "t1. ! videoconvert ! tee name=t"
     stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! mp4mux ! multifdsink name=stream_sink"
@@ -157,7 +160,7 @@ else:
     raise RuntimeError("unknown profile")
 
 display_desc = "t. ! q.sink_2 q.src_2 ! queue2 ! autovideosink" if args.local else ""
-pipeline_desc = ' '.join([input_desc, stream_desc, encode_desc, display_desc, "multiqueue name=q"])
+pipeline_desc = ' '.join([input_desc, preprocess_desc, stream_desc, encode_desc, display_desc, "multiqueue name=q"])
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
 src = Source(pipeline_desc)
