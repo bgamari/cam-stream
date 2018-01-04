@@ -17,7 +17,8 @@ import aiohttp
 from aiohttp import web
 import asyncio
 
-valid_profiles = ['vaapi-webm', 'webm', 'x285']
+valid_profiles = ['vaapi-webm', 'webm', 'h264', 'vaapi-h264']
+# believed to be broken: h264, vaapi-h264
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--profile', choices=valid_profiles, default='vaapi-webm',
@@ -140,9 +141,12 @@ elif args.profile == 'webm':
     encode_desc = "t1. ! videoconvert ! tee name=t"
     stream_desc = "t. ! q.sink_0 q.src_0 ! vp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
     input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=25/1 ! videoconvert ! vp8enc ! tee name=t"
-elif args.profile == 'x285':
+elif args.profile == 'h264':
+    encode_desc = "t1. ! videoconvert ! tee name=t"
+    stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! mp4mux ! multifdsink name=stream_sink"
+elif args.profile == 'vaapi-h264':
     encode_desc = "t1. ! videoconvert ! vaapipostproc ! tee name=t"
-    stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! matroskamux ! multifdsink name=stream_sink"
+    stream_desc = "t. ! q.sink_0 q.src_0 ! vaapih264enc ! mp4mux ! multifdsink name=stream_sink"
 else:
     raise RuntimeError("unknown profile")
 
@@ -156,7 +160,7 @@ async def handle_webm(request):
     print(request)
     resp = web.StreamResponse()
     resp.content_length = -1
-    if args.profile != 'x285':
+    if args.profile != 'h264':
         resp.content_type = 'video/webm'
     else:
         # TODO
