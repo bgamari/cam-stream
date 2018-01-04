@@ -20,6 +20,7 @@ import asyncio
 parser = argparse.ArgumentParser()
 parser.add_argument('--no-vp8', help="Use x285 instead of WebM (currently broken)")
 parser.add_argument('--local', help="Show the stream locally")
+parser.add_argument('--port', '-p', type=int, default=8080, help="Port number to serve on")
 args = parser.parse_args()
 have_vp8 = not args.no_vp8
 enable_display = args.local
@@ -199,7 +200,7 @@ async def glib_loop():
 
 try:
     print("serving...")
-    web.run_app(app)
+    web.run_app(app, port=args.port)
 finally:
     print('done')
     src.stop()
