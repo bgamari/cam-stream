@@ -198,15 +198,6 @@ app.router.add_get('/', serve_static('index.html'))
 loop = app.loop
 app.loop.create_task(src.start())
 
-async def glib_loop():
-    ctx = GLib.MainContext.default()
-    while True:
-        while ctx.pending():
-            ctx.iteration(False)
-        await asyncio.sleep(0.001)
-
-#app.loop.create_task(glib_loop())
-
 try:
     print("serving...")
     web.run_app(app, port=args.port)
