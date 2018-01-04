@@ -17,16 +17,17 @@ import aiohttp
 from aiohttp import web
 import asyncio
 
+valid_profiles = ['vaapi-webm', 'webm', 'x285']
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--no-vp8', help="Use x285 instead of WebM (currently broken)")
-parser.add_argument('--local', help="Show the stream locally")
+parser.add_argument('--profile', choices=valid_profiles, default='vaapi-webm',
+                    help="Stream encoding format (%s)" % (', '.join(valid_profiles)))
+parser.add_argument('--local', action='store_true', help="Show the stream locally")
 parser.add_argument('--port', '-p', type=int, default=8080, help="Port number to serve on")
 parser.add_argument('--mjpeg-framerate', type=int, default=5, help="Framerate of the MJPEG stream")
 parser.add_argument('--mjpeg-width', type=int, default=640, help="Width of the MJPEG stream")
 parser.add_argument('--mjpeg-height', type=int, default=480, help="Height of the MJPEG stream")
 args = parser.parse_args()
-have_vp8 = not args.no_vp8
-have_va_api = True
 enable_display = args.local
 
 class Source(object):
@@ -132,16 +133,18 @@ class MultiFdSink(object):
 
 Gst.init(sys.argv)
 input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! tee name=t1"
-if have_va_api:
+if args.profile == 'vaapi-webm':
     encode_desc = "t1. ! videoconvert ! vaapipostproc ! tee name=t"
-    if have_vp8:
-        stream_desc = "t. ! q.sink_0 q.src_0 ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
-    else:
-        stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! matroskamux ! multifdsink name=stream_sink"
-else:
+    stream_desc = "t. ! q.sink_0 q.src_0 ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
+elif args.profile == 'webm':
     encode_desc = "t1. ! videoconvert ! tee name=t"
     stream_desc = "t. ! q.sink_0 q.src_0 ! vp8enc ! webmmux streamable=true ! multifdsink name=stream_sink"
     input_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=25/1 ! videoconvert ! vp8enc ! tee name=t"
+elif args.profile == 'x285':
+    encode_desc = "t1. ! videoconvert ! vaapipostproc ! tee name=t"
+    stream_desc = "t. ! q.sink_0 q.src_0 ! x264enc ! matroskamux ! multifdsink name=stream_sink"
+else:
+    raise RuntimeError("unknown profile")
 
 display_desc = "t. ! q.sink_2 q.src_2 ! queue2 ! autovideosink" if enable_display else ""
 pipeline_desc = ' '.join([input_desc, stream_desc, encode_desc, display_desc, "multiqueue name=q"])
@@ -153,9 +156,10 @@ async def handle_webm(request):
     print(request)
     resp = web.StreamResponse()
     resp.content_length = -1
-    if have_vp8:
+    if args.profile != 'x285':
         resp.content_type = 'video/webm'
     else:
+        # TODO
         #resp.content_type = 'video/webm'
         pass
     await resp.prepare(request)
