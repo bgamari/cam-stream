@@ -1,6 +1,23 @@
+# Simple camera streaming server
+
+This is a small Python hack for serving video from
+a [V4L2](https://en.wikipedia.org/wiki/Video4Linux) video input device via HTTP.
+It supports a WebM and MJPEG formats.
+
+## Usage
+
+On Debian/Ubuntu install the following,
+```
+sudo apt-get install python3-aiohttp gstreamer1.0-vaapi python3-gst-1.0
+```
+
 ## Debugging
 
-vaapi is essentially mandatory
+va-api is essentially mandatory for reasonable performance. `vainfo` is useful for diagnosing va-api issues.
+
+This is a handy command-line for debugging GStreamer problems:
 ```
 GST_DEBUG_DUMP_DOT_DIR=. GST_DEBUG=4 python3 stream.py
 ```
+
+`mediainfo` is helpful for diagnosing format issues.
