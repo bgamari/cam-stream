@@ -27,16 +27,31 @@ parser.add_argument('--local', action='store_true', help="Show the stream locall
 parser.add_argument('--device', '-d', type=str, default='/dev/video0',
                     help="V4L2 capture device to serve (or 'test' to use test source)")
 parser.add_argument('--port', '-p', type=int, default=8080, help="Port number to serve on")
-parser.add_argument('--input-format', type=str, default='video/x-raw,format=BGR,framerate=15/1',
+parser.add_argument('--input-format', type=str,
+                    default='video/x-raw,format=BGR,framerate=30/1',
                     help='Input video format (GStreamer media type)')
 parser.add_argument('--mjpeg-framerate', type=int, default=5, help="Framerate of the MJPEG stream")
 parser.add_argument('--mjpeg-width', type=int, default=640, help="Width of the MJPEG stream")
 parser.add_argument('--mjpeg-height', type=int, default=480, help="Height of the MJPEG stream")
 args = parser.parse_args()
 
+async def watch_bus(bus):
+    while True:
+        while True:
+            msg = bus.pop()
+            if msg is None: break
+            print('Bus message: %s: %s' % (msg.timestamp, msg.type))
+            if msg.type == Gst.MessageType.ERROR:
+                print(msg.parse_error())
+            elif msg.type == Gst.MessageType.WARNING:
+                print(msg.parse_warning())
+            elif msg.type == Gst.MessageType.STATE_CHANGED:
+                print(msg.parse_state_changed())
+
+        await asyncio.sleep(0.1)
 
 class Source(object):
-    def __init__(self, pipeline_desc):
+    def __init__(self, loop, pipeline_desc):
         desc = pipeline_desc.format(fd=1)
         print('pipeline: %s' % desc)
         self.pipeline = Gst.Pipeline()
@@ -45,7 +60,7 @@ class Source(object):
         self.stream_sink = MultiFdSink(self.pipeline.get_by_name('stream_sink'), name='stream')
         self.tee = self.pipeline.get_by_name('t1')
         self.mjpeg_bin = None
-        bus = self.pipeline.get_bus()
+        loop.create_task(watch_bus(self.pipeline.get_bus()))
 
         Gst.debug_bin_to_dot_file(self.pipeline, Gst.DebugGraphDetails.ALL, "graph.dot")
 
@@ -136,7 +151,7 @@ class MultiFdSink(object):
         self.fds[fd] = event
         await event.wait()
 
-Gst.init(sys.argv)
+# Construct pipeline description
 if args.device != 'test':
     input_desc = "v4l2src device=%s name=raw" % args.device
 else:
@@ -163,7 +178,10 @@ display_desc = "t. ! q.sink_2 q.src_2 ! queue2 ! autovideosink" if args.local el
 pipeline_desc = ' '.join([input_desc, preprocess_desc, stream_desc, encode_desc, display_desc, "multiqueue name=q"])
 #pipeline_desc = "v4l2src device=/dev/video1 ! video/x-raw,format=BGR,framerate=15/1 ! videoconvert ! vaapipostproc ! vaapivp8enc ! webmmux streamable=true ! multifdsink name=sink"
 
-src = Source(pipeline_desc)
+Gst.init(sys.argv)
+loop = asyncio.get_event_loop()
+src = Source(loop, pipeline_desc)
+loop.create_task(src.start())
 
 async def handle_stream(request):
     print(request)
@@ -218,12 +236,9 @@ app.router.add_get('/mjpeg.html', serve_static('mjpeg.html'))
 app.router.add_get('/webm.html', serve_static('webm.html'))
 app.router.add_get('/', serve_static('index.html'))
 
-loop = app.loop
-app.loop.create_task(src.start())
-
 try:
     print("serving...")
-    web.run_app(app, port=args.port)
+    web.run_app(app, port=args.port, loop=loop)
 finally:
     print('done')
     src.stop()
