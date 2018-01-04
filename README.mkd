@@ -13,7 +13,10 @@ sudo apt-get install python3-aiohttp gstreamer1.0-vaapi python3-gst-1.0
 
 ## Debugging
 
-va-api is essentially mandatory for reasonable performance. `vainfo` is useful for diagnosing va-api issues.
+Passing `--device=test` is a good way to isolate input problems.
+
+va-api is essentially mandatory for reasonable performance. `vainfo` is useful
+for diagnosing va-api issues.
 
 This is a handy command-line for debugging GStreamer problems:
 ```
