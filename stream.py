@@ -72,7 +72,7 @@ class Source(object):
 
     async def add_mjpeg_sink(self, fd):
         if self.mjpeg_bin is None:
-            desc = 'videorate name=in ! video/x-raw,framerate=5/1 ! jpegenc ! avimux ! tee name=a a. ! multifdsink name=sink a. ! filesink location=hi.jpeg'
+            desc = 'videorate name=in ! video/x-raw,framerate=5/1 ! videoscale ! video/x-raw,width=640,height=480 ! queue ! jpegenc ! multifdsink name=sink'
             self.mjpeg_bin = Gst.parse_bin_from_description(desc, False)
             self.mjpeg_sink = MultiFdSink(self.mjpeg_bin.get_by_name('sink'), name='mjpeg')
             self.pipeline.add(self.mjpeg_bin)
