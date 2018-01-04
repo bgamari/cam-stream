@@ -131,7 +131,7 @@ class Source(object):
         await self.stream_sink.add_fd(fd)
 
     def stop(self):
-        self.bin.set_state(Gst.State.NULL)
+        self.pipeline.set_state(Gst.State.NULL)
 
 class MultiFdSink(object):
     def __init__(self, sink, name="unknown"):
