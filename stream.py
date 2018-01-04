@@ -176,6 +176,7 @@ app.router.add_get('/stream.webm', handle_webm)
 app.router.add_get('/stream.jpeg', handle_jpeg)
 app.router.add_get('/stream.mjpeg', handle_mjpeg)
 app.router.add_get('/mjpeg.html', serve_static('mjpeg.html'))
+app.router.add_get('/webm.html', serve_static('webm.html'))
 app.router.add_get('/', serve_static('index.html'))
 
 loop = app.loop
