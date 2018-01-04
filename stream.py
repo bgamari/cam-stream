@@ -2,6 +2,8 @@
 
 import os
 import sys
+import argparse
+
 import gi
 gi.require_version("Gst", "1.0")
 gi.require_version("GstApp", "1.0")
@@ -15,8 +17,12 @@ import aiohttp
 from aiohttp import web
 import asyncio
 
-have_vp8 = True
-enable_display = True
+parser = argparse.ArgumentParser()
+parser.add_argument('--no-vp8', help="Use x285 instead of WebM (currently broken)")
+parser.add_argument('--local', help="Show the stream locally")
+args = parser.parse_args()
+have_vp8 = not args.no_vp8
+enable_display = args.local
 
 class Source(object):
     def __init__(self, pipeline_desc):
